@@ -73,7 +73,7 @@ object Utils {
         if (key == null) return null
 
         @Suppress("DEPRECATION")
-        if (ver.isRunningPaper && ver.minorVersion >= 21){
+        if (ver.isRunningPaper && ver.minecraftVersion.isGreaterThanOrEqual("1.21")){
             val registry = RegistryAccess.registryAccess().getRegistry(RegistryKey.BIOME)
 
             return registry.get(key)
@@ -407,6 +407,16 @@ object Utils {
         return x.toLong() and 0xffffffffL or ((z.toLong() and 0xffffffffL) shl 32)
     }
 
+    fun getChunkKey(chunkX: Int, chunkZ: Int): Long {
+        if (LevelledMobs.instance.ver.isRunningPaper) {
+            return (chunkX.toLong() and 0xffffffffL) or (chunkZ.toLong() shl 32)
+        }
+
+        val x = chunkX shr 4
+        val z = chunkZ shr 4
+        return x.toLong() and 0xffffffffL or ((z.toLong() and 0xffffffffL) shl 32)
+    }
+
     fun displayChunkLocation(location: Location): String {
         return "${location.chunk.x},${location.chunk.z}"
     }
@@ -616,7 +626,7 @@ object Utils {
         val enchantment: Enchantment?
         val ver = LevelledMobs.instance.ver
 
-        if (ver.isRunningPaper && ver.minorVersion >= 21){
+        if (ver.isRunningPaper && ver.minecraftVersion.isGreaterThanOrEqual("1.21")){
             val registry = RegistryAccess.registryAccess().getRegistry(
                 RegistryKey.ENCHANTMENT
             )

@@ -63,19 +63,17 @@ class ServerVersionInfo {
             parseBukkitVersion()
 
         isOneTwentyFiveOrNewer =
-            minorVersion == 20 && revision >= 5 || minorVersion >= 21
+            minecraftVersion.isGreaterThanOrEqual("1.20.5")
 
         allowStructureConditions =
-            minorVersion == 20 && revision >= 4 || minorVersion >= 21
+            minecraftVersion.isGreaterThanOrEqual("1.20.4")
 
         // 1.21.3 changed various enums to interfaces
         useOldEnums = minecraftVersion.isLessThanOrEquals("1.21.3")
 
         useSimpleName = minecraftVersion.isGreaterThanOrEqual("26.1") ||
-                (isRunningPaper && isOneTwentyFiveOrNewer && !isRunningFolia
-                || isRunningFabric)
-                && (!isRunningFolia || minecraftVersion.isGreaterThanOrEqual("1.22.0"))
-
+                (isRunningPaper && isOneTwentyFiveOrNewer) ||
+                isRunningFabric
     }
 
     private fun parsePaperVersion(){
@@ -93,7 +91,11 @@ class ServerVersionInfo {
 
     private fun parseBukkitVersion() {
         // 1.19.2-R0.1-SNAPSHOT --> 1.19.2
+        // 26.1.2.local-SNAPSHOT --> 26.1.2
         val bukkitVersion = Bukkit.getBukkitVersion().split('-')[0]
+            .split('.')
+            .takeWhile { it.isNotEmpty() && it.all(Char::isDigit) }
+            .joinToString(".")
 
         parseVersions(bukkitVersion)
     }
