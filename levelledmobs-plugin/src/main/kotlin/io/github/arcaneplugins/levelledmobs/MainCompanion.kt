@@ -537,9 +537,12 @@ class MainCompanion{
         val main = LevelledMobs.instance
         main.mobsQueueManager.stop()
         main.nametagQueueManager.stop()
-        hashMapCleanUp?.cancelTask()
-        if (!main.ver.isRunningFolia)
+        if (main.ver.isRunningFolia) {
+            Bukkit.getAsyncScheduler().cancelTasks(main)
+            Bukkit.getGlobalRegionScheduler().cancelTasks(main)
+        } else {
             Bukkit.getScheduler().cancelTasks(main)
+        }
     }
 
     private fun buildUniversalGroups() {

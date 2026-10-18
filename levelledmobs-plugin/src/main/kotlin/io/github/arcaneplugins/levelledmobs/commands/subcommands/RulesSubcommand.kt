@@ -169,18 +169,74 @@ object RulesSubcommand : CommandBase("levelledmobs.command.rules") {
     }
 
     private fun forceRelevel() {
-        //TODO: make this work in Folia
-        if (LevelledMobs.instance.ver.isRunningFolia) {
-            commandSender!!.sendMessage("Sorry this command doesn't work in Folia")
+        val main = LevelledMobs.instance
+        main.reloadLM(commandSender!!)
+        val isUsingPlayerLevelling = main.rulesManager.isPlayerLevellingEnabled()
+
+        if (main.ver.isRunningFolia) {
+            val chunkTargets = mutableListOf<Triple<org.bukkit.World, Int, Int>>()
+            for (world in Bukkit.getWorlds()) {
+                for (chunk in world.loadedChunks) {
+                    chunkTargets.add(Triple(world, chunk.x, chunk.z))
+                }
+            }
+
+            if (chunkTargets.isEmpty()) {
+                showMessage("command.levelledmobs.rules.rules-reprocessed",
+                    mutableListOf("%entitycount%", "%worldcount%"),
+                    mutableListOf("0", Bukkit.getWorlds().size.toString())
+                )
+                return
+            }
+
+            val remainingChunks = java.util.concurrent.atomic.AtomicInteger(chunkTargets.size)
+            val entityCount = java.util.concurrent.atomic.AtomicInteger(0)
+
+            for ((world, chunkX, chunkZ) in chunkTargets) {
+                Bukkit.getRegionScheduler().run(main, world, chunkX, chunkZ) {
+                    if (world.isChunkLoaded(chunkX, chunkZ)) {
+                        val chunk = world.getChunkAt(chunkX, chunkZ)
+                        for (entity in chunk.entities) {
+                            if (entity !is LivingEntity || entity is Player || !entity.isValid)
+                                continue
+
+                            var doContinue = false
+                            synchronized(entity.persistentDataContainer) {
+                                if (entity.persistentDataContainer.has(
+                                        NamespacedKeys.wasSummoned,
+                                        PersistentDataType.INTEGER
+                                    )
+                                ) {
+                                    doContinue = true
+                                }
+                            }
+                            if (doContinue) continue
+
+                            entityCount.incrementAndGet()
+                            val lmEntity = LivingEntityWrapper.getInstance(entity)
+                            lmEntity.reEvaluateLevel = true
+                            lmEntity.isRulesForceAll = true
+                            lmEntity.wasPreviouslyLevelled = lmEntity.isLevelled
+                            if (isUsingPlayerLevelling)
+                                EntitySpawnListener.updateMobForPlayerLevelling(lmEntity)
+
+                            main.mobsQueueManager.addToQueue(QueueItem(lmEntity, null))
+                            lmEntity.free()
+                        }
+                    }
+                    if (remainingChunks.decrementAndGet() == 0) {
+                        showMessage("command.levelledmobs.rules.rules-reprocessed",
+                            mutableListOf("%entitycount%", "%worldcount%"),
+                            mutableListOf(entityCount.get().toString(), Bukkit.getWorlds().size.toString())
+                        )
+                    }
+                }
+            }
             return
         }
 
         var worldCount = 0
         var entityCount = 0
-        val main = LevelledMobs.instance
-
-        main.reloadLM(commandSender!!)
-        val isUsingPlayerLevelling = main.rulesManager.isPlayerLevellingEnabled()
 
         for (world in Bukkit.getWorlds()) {
             worldCount++
@@ -535,6 +591,7 @@ object RulesSubcommand : CommandBase("levelledmobs.command.rules") {
                     else
                         world.spawnParticle(Particle.EFFECT, location, 20, 0.0, 0.0, 0.0, 0.1)
                 }
+                scheduler.locationForRegionScheduler = location
                 scheduler.run()
 
                 // this thread is async, no blocking occurs

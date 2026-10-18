@@ -11,6 +11,7 @@ import io.github.arcaneplugins.levelledmobs.misc.RequestedLevel
 import io.github.arcaneplugins.levelledmobs.util.MiscUtils
 import io.github.arcaneplugins.levelledmobs.util.Utils
 import io.github.arcaneplugins.levelledmobs.wrappers.LivingEntityWrapper
+import io.github.arcaneplugins.levelledmobs.wrappers.SchedulerWrapper
 import io.papermc.paper.command.brigadier.CommandSourceStack
 import java.util.TreeSet
 import java.util.concurrent.CompletableFuture
@@ -72,11 +73,6 @@ object KillSubcommand : CommandBase("levelledmobs.command.kill") {
     ){
         val sender = ctx.source.sender
         commandSender = sender
-        //TODO: make this work in Folia
-        if (LevelledMobs.instance.ver.isRunningFolia) {
-            sender.sendMessage("Sorry this command doesn't work in Folia")
-            return
-        }
 
         val values = ctx.input
         if (values == null) {
@@ -191,50 +187,108 @@ object KillSubcommand : CommandBase("levelledmobs.command.kill") {
             )
         }
 
-        var killed = 0
-        var skipped = 0
-        val mobsToKill: Collection<Entity>
-
         if (sender is BlockCommandSender) {
             val block = sender.block
-            val finalRadius = MiscUtils.retrieveLoadedChunkRadius(block.location, radius.toDouble())
-            mobsToKill = block.world
-                .getNearbyEntities(block.location, finalRadius, finalRadius, finalRadius)
+            val wrapper = SchedulerWrapper {
+                val finalRadius = MiscUtils.retrieveLoadedChunkRadius(block.location, radius.toDouble())
+                val mobsToKill = block.world.getNearbyEntities(block.location, finalRadius, finalRadius, finalRadius)
+                executeKillOnEntities(mobsToKill, opts, radius)
+                Unit
+            }
+            wrapper.locationForRegionScheduler = block.location
+            wrapper.runDirectlyInBukkit = true
+            wrapper.runDirectlyInFolia = true
+            wrapper.run()
         } else {
-            val finalRadius = MiscUtils.retrieveLoadedChunkRadius((sender as Player).location, radius.toDouble())
-            mobsToKill = sender.getNearbyEntities(finalRadius, finalRadius, finalRadius)
+            val player = sender as Player
+            val wrapper = SchedulerWrapper(player) {
+                val finalRadius = MiscUtils.retrieveLoadedChunkRadius(player.location, radius.toDouble())
+                val mobsToKill = player.getNearbyEntities(finalRadius, finalRadius, finalRadius)
+                executeKillOnEntities(mobsToKill, opts, radius)
+                Unit
+            }
+            wrapper.runDirectlyInBukkit = true
+            wrapper.runDirectlyInFolia = true
+            wrapper.run()
+        }
+    }
+
+    private fun executeKillOnEntities(
+        mobsToKill: Collection<Entity>,
+        opts: Options,
+        radius: Int
+    ) {
+        val main = LevelledMobs.instance
+        if (!main.ver.isRunningFolia) {
+            var killed = 0
+            var skipped = 0
+            for (entity in mobsToKill) {
+                if (entity !is LivingEntity) continue
+                if (!main.levelInterface.isLevelled(entity)) continue
+                if (skipKillingEntity(entity, opts.requestedLevel)) {
+                    skipped++
+                    continue
+                }
+                entity.setMetadata("noCommands", FixedMetadataValue(main, 1))
+                if (opts.useNoDrops) entity.remove() else entity.health = 0.0
+                killed++
+            }
+            showMessage("command.levelledmobs.kill.near.success",
+                mutableListOf("%killed%", "%skipped%", "%radius%"),
+                mutableListOf(killed.toString(), skipped.toString(), radius.toString())
+            )
+            return
+        }
+
+        if (mobsToKill.isEmpty()) {
+            showMessage("command.levelledmobs.kill.near.success",
+                mutableListOf("%killed%", "%skipped%", "%radius%"),
+                mutableListOf("0", "0", radius.toString())
+            )
+            return
+        }
+
+        val remaining = java.util.concurrent.atomic.AtomicInteger(mobsToKill.size)
+        val killedCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val skippedCount = java.util.concurrent.atomic.AtomicInteger(0)
+
+        val finishOne = {
+            if (remaining.decrementAndGet() == 0) {
+                showMessage("command.levelledmobs.kill.near.success",
+                    mutableListOf("%killed%", "%skipped%", "%radius%"),
+                    mutableListOf(killedCount.get().toString(), skippedCount.get().toString(), radius.toString())
+                )
+            }
         }
 
         for (entity in mobsToKill) {
-            if (entity !is LivingEntity) continue
-
-            if (!LevelledMobs.instance.levelInterface.isLevelled(entity)) continue
-
-            if (skipKillingEntity(entity, opts.requestedLevel)) {
-                skipped++
+            if (entity !is LivingEntity) {
+                finishOne()
                 continue
             }
-
-            entity.setMetadata(
-                "noCommands",
-                FixedMetadataValue(LevelledMobs.instance, 1)
-            )
-
-            if (opts.useNoDrops)
-                entity.remove()
-            else
-                entity.health = 0.0
-
-            killed++
+            if (Bukkit.isOwnedByCurrentRegion(entity)) {
+                if (!main.levelInterface.isLevelled(entity) || skipKillingEntity(entity, opts.requestedLevel)) {
+                    if (main.levelInterface.isLevelled(entity)) skippedCount.incrementAndGet()
+                } else {
+                    entity.setMetadata("noCommands", FixedMetadataValue(main, 1))
+                    if (opts.useNoDrops) entity.remove() else entity.health = 0.0
+                    killedCount.incrementAndGet()
+                }
+                finishOne()
+            } else {
+                val scheduled = entity.scheduler.run(main, {
+                    if (!main.levelInterface.isLevelled(entity) || skipKillingEntity(entity, opts.requestedLevel)) {
+                        if (main.levelInterface.isLevelled(entity)) skippedCount.incrementAndGet()
+                    } else {
+                        entity.setMetadata("noCommands", FixedMetadataValue(main, 1))
+                        if (opts.useNoDrops) entity.remove() else entity.health = 0.0
+                        killedCount.incrementAndGet()
+                    }
+                    finishOne()
+                }, { finishOne() })
+                if (scheduled == null) finishOne()
+            }
         }
-
-        showMessage("command.levelledmobs.kill.near.success",
-            mutableListOf("%killed%", "%skipped%", "%radius%"),
-            mutableListOf(
-                killed.toString(), skipped.toString(),
-                radius.toString()
-            )
-        )
     }
 
     private fun buildTabSuggestions(
@@ -349,7 +403,67 @@ object KillSubcommand : CommandBase("levelledmobs.command.kill") {
         useNoDrops: Boolean,
         rl: RequestedLevel?
     ) {
-        LevelledMobs.instance.mobsQueueManager.clearQueue()
+        val main = LevelledMobs.instance
+        main.mobsQueueManager.clearQueue()
+
+        val sendSummary = { killed: Int, skipped: Int ->
+            showMessage("command.levelledmobs.kill.all.success",
+                mutableListOf("%killed%", "%skipped%", "%worlds%"),
+                mutableListOf(
+                    killed.toString(), skipped.toString(),
+                    worlds.size.toString()
+                )
+            )
+        }
+
+        if (main.ver.isRunningFolia) {
+            val chunkTargets = mutableListOf<Triple<World, Int, Int>>()
+            for (world in worlds) {
+                for (chunk in world.loadedChunks) {
+                    chunkTargets.add(Triple(world, chunk.x, chunk.z))
+                }
+            }
+
+            if (chunkTargets.isEmpty()) {
+                sendSummary(0, 0)
+                return
+            }
+
+            val remainingChunks = java.util.concurrent.atomic.AtomicInteger(chunkTargets.size)
+            val killed = java.util.concurrent.atomic.AtomicInteger(0)
+            val skipped = java.util.concurrent.atomic.AtomicInteger(0)
+
+            for ((world, chunkX, chunkZ) in chunkTargets) {
+                Bukkit.getRegionScheduler().run(main, world, chunkX, chunkZ) {
+                    if (world.isChunkLoaded(chunkX, chunkZ)) {
+                        val chunk = world.getChunkAt(chunkX, chunkZ)
+                        for (entity in chunk.entities) {
+                            if (entity !is LivingEntity || !entity.isValid) continue
+                            if (!main.levelInterface.isLevelled(entity)) continue
+
+                            if (skipKillingEntity(entity, rl)) {
+                                skipped.incrementAndGet()
+                                continue
+                            }
+
+                            entity.setMetadata("noCommands", FixedMetadataValue(main, 1))
+
+                            if (useNoDrops)
+                                entity.remove()
+                            else
+                                entity.health = 0.0
+
+                            killed.incrementAndGet()
+                        }
+                    }
+                    if (remainingChunks.decrementAndGet() == 0) {
+                        sendSummary(killed.get(), skipped.get())
+                    }
+                }
+            }
+            return
+        }
+
         var killed = 0
         var skipped = 0
 
@@ -357,7 +471,7 @@ object KillSubcommand : CommandBase("levelledmobs.command.kill") {
             for (entity in world.entities) {
                 if (entity !is LivingEntity) continue
 
-                if (!LevelledMobs.instance.levelInterface.isLevelled(entity))
+                if (!main.levelInterface.isLevelled(entity))
                     continue
 
                 if (skipKillingEntity(entity, rl)) {
@@ -365,7 +479,7 @@ object KillSubcommand : CommandBase("levelledmobs.command.kill") {
                     continue
                 }
 
-                entity.setMetadata("noCommands", FixedMetadataValue(LevelledMobs.instance, 1))
+                entity.setMetadata("noCommands", FixedMetadataValue(main, 1))
 
                 if (useNoDrops)
                     entity.remove()
@@ -376,13 +490,7 @@ object KillSubcommand : CommandBase("levelledmobs.command.kill") {
             }
         }
 
-        showMessage("command.levelledmobs.kill.all.success",
-            mutableListOf("%killed%", "%skipped%", "%worlds%"),
-            mutableListOf(
-                killed.toString(), skipped.toString(),
-                worlds.size.toString()
-            )
-        )
+        sendSummary(killed, skipped)
     }
 
     private fun skipKillingEntity(

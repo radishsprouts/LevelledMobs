@@ -1349,6 +1349,16 @@ class CustomDropsHandler {
     }
 
     private fun executeTheCommand(command: String, timesToRun: Int) {
+        val main = LevelledMobs.instance
+        if (main.ver.isRunningFolia) {
+            Bukkit.getGlobalRegionScheduler().run(main) {
+                repeat(timesToRun) {
+                    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command)
+                }
+            }
+            return
+        }
+
         repeat(timesToRun) {
             Bukkit.dispatchCommand(Bukkit.getConsoleSender(), command)
         }

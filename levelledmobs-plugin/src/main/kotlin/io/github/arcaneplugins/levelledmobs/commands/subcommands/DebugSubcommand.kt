@@ -353,11 +353,12 @@ object DebugSubcommand : CommandBase("levelledmobs.command.debug") {
         val nametagQueueNum = LevelledMobs.instance.nametagQueueManager.getNumberQueued()
         val nametagQueueTask = LevelledMobs.instance.nametagQueueManager.queueTask
         val mobQueueNum = LevelledMobs.instance.mobsQueueManager.getNumberQueued()
-        val isNametagTaskRunning = if (nametagQueueTask != null) Bukkit.getScheduler().isCurrentlyRunning(nametagQueueTask.taskId) else false
+        val isFolia = LevelledMobs.instance.ver.isRunningFolia
+        val isNametagTaskRunning = if (!isFolia && nametagQueueTask != null) Bukkit.getScheduler().isCurrentlyRunning(nametagQueueTask.taskId) else false
         val nametagtaskStatus = if (nametagQueueTask == null) "(null)" else "id: ${nametagQueueTask.taskId}, is running: $isNametagTaskRunning, is cancelled: ${nametagQueueTask.isCancelled}"
         val mobsTaskStatus = StringBuilder()
         for (task in LevelledMobs.instance.mobsQueueManager.queueTasks.values){
-            val isRunning = Bukkit.getScheduler().isCurrentlyRunning(task.taskId)
+            val isRunning = if (!isFolia) Bukkit.getScheduler().isCurrentlyRunning(task.taskId) else false
             mobsTaskStatus.append("\n   ")
             mobsTaskStatus.append("id: ${task.taskId}, is running: $isRunning, is cancelled: ${task.isCancelled}")
         }

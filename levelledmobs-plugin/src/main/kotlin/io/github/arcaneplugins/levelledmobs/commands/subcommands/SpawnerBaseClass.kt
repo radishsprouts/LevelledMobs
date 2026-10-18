@@ -15,6 +15,7 @@ import io.github.arcaneplugins.levelledmobs.util.PaperUtils
 import io.github.arcaneplugins.levelledmobs.util.SpigotUtils
 import io.github.arcaneplugins.levelledmobs.util.Utils
 import io.github.arcaneplugins.levelledmobs.util.Utils.colorizeAllInList
+import io.github.arcaneplugins.levelledmobs.wrappers.SchedulerWrapper
 import io.papermc.paper.command.brigadier.CommandSourceStack
 import java.util.concurrent.CompletableFuture
 import org.bukkit.Bukkit
@@ -400,70 +401,78 @@ abstract class SpawnerBaseClass(
         item: ItemStack,
         info: CustomSpawnerInfo
     ){
-        var useInvSlotNum: Int = info.player!!.inventory.heldItemSlot
-        if (info.player!!.inventory.getItem(useInvSlotNum) != null)
-            useInvSlotNum = -1
+        val targetPlayer = info.player ?: return
+        val scheduler = SchedulerWrapper(targetPlayer) {
+            var useInvSlotNum: Int = targetPlayer.inventory.heldItemSlot
+            if (targetPlayer.inventory.getItem(useInvSlotNum) != null)
+                useInvSlotNum = -1
 
-        if (useInvSlotNum == -1) {
-            for (i in 0..35) {
-                if (info.player!!.inventory.getItem(i) == null) {
-                    useInvSlotNum = i
-                    break
+            if (useInvSlotNum == -1) {
+                for (i in 0..35) {
+                    if (targetPlayer.inventory.getItem(i) == null) {
+                        useInvSlotNum = i
+                        break
+                    }
                 }
             }
-        }
 
-        if (useInvSlotNum == -1) {
-            showMessage( "command.levelledmobs.spawner.inventory-full", info.player!!.name, "")
-            return
-        }
+            if (useInvSlotNum == -1) {
+                showMessage("command.levelledmobs.spawner.inventory-full", targetPlayer.name, "")
+                return@SchedulerWrapper
+            }
 
-        info.player!!.inventory.setItem(useInvSlotNum, item)
+            targetPlayer.inventory.setItem(useInvSlotNum, item)
 
-        val playerName = if (LevelledMobs.instance.ver.isRunningPaper) PaperUtils.getPlayerDisplayName(info.player)
-        else SpigotUtils.getPlayerDisplayName(info.player)
+            val playerName = if (LevelledMobs.instance.ver.isRunningPaper) PaperUtils.getPlayerDisplayName(targetPlayer)
+            else SpigotUtils.getPlayerDisplayName(targetPlayer)
 
-        val message: MutableList<String>
-        if (info.isSpawnEgg){
-            message = getMessage(
-                "command.levelledmobs.spawn_egg.give-message-console",
-                mutableListOf("%minlevel%", "%maxlevel%", "%playername%", "%entitytype%"),
-                mutableListOf(
-                    info.minLevel.toString(), info.maxLevel.toString(), playerName,
-                    info.spawnType.name
+            val message: MutableList<String>
+            if (info.isSpawnEgg){
+                message = getMessage(
+                    "command.levelledmobs.spawn_egg.give-message-console",
+                    mutableListOf("%minlevel%", "%maxlevel%", "%playername%", "%entitytype%"),
+                    mutableListOf(
+                        info.minLevel.toString(), info.maxLevel.toString(), playerName,
+                        info.spawnType.name
+                    )
                 )
-            )
-        }
-        else{
-            message = getMessage(
-                "command.levelledmobs.spawner.spawner-give-message-console",
-                mutableListOf("%minlevel%", "%maxlevel%", "%playername%"),
-                mutableListOf(info.minLevel.toString(), info.maxLevel.toString(), playerName)
-            )
-        }
+            }
+            else{
+                message = getMessage(
+                    "command.levelledmobs.spawner.spawner-give-message-console",
+                    mutableListOf("%minlevel%", "%maxlevel%", "%playername%"),
+                    mutableListOf(info.minLevel.toString(), info.maxLevel.toString(), playerName)
+                )
+            }
 
-        if (message.isNotEmpty()) {
-            val consoleMsg = message.first()
-                .replace(LevelledMobs.instance.configUtils.prefix + " ", "&r")
-            Log.inf(consoleMsg)
-        }
+            if (message.isNotEmpty()) {
+                val consoleMsg = message.first()
+                    .replace(LevelledMobs.instance.configUtils.prefix + " ", "&r")
+                Log.inf(consoleMsg)
+            }
 
-        if (info.isSpawnEgg){
-            showMessage(
-                "command.levelledmobs.spawn_egg.give-message",
-                mutableListOf("%minlevel%", "%maxlevel%", "%playername%", "%entitytype%"),
-                mutableListOf(
-                    info.minLevel.toString(), info.maxLevel.toString(), playerName,
-                    info.spawnType.name
-                ),
-                info.player!!
-            )
+            if (info.isSpawnEgg){
+                showMessage(
+                    "command.levelledmobs.spawn_egg.give-message",
+                    mutableListOf("%minlevel%", "%maxlevel%", "%playername%", "%entitytype%"),
+                    mutableListOf(
+                        info.minLevel.toString(), info.maxLevel.toString(), playerName,
+                        info.spawnType.name
+                    ),
+                    targetPlayer
+                )
+            }
+            else{
+                showMessage("command.levelledmobs.spawner.spawner-give-message",
+                    targetPlayer.name,
+                    ""
+                )
+            }
         }
-        else{
-            showMessage("command.levelledmobs.spawner.spawner-give-message",
-                info.player!!.name,
-                ""
-            )
+        scheduler.runDirectlyInFolia = true
+        scheduler.retiredCallback = {
+            Log.war("Player logged off before receiving spawner/spawn egg: ${targetPlayer.name}", false)
         }
+        scheduler.run()
     }
 }

@@ -378,7 +378,7 @@ object SummonSubcommand : CommandBase("levelledmobs.command.summon"){
             future.complete(true)
         }
         wrapper.runDirectlyInBukkit = true
-        wrapper.runDirectlyInFolia = sender is Player
+        wrapper.runDirectlyInFolia = true
         wrapper.locationForRegionScheduler = location
         wrapper.run()
 
@@ -527,7 +527,7 @@ object SummonSubcommand : CommandBase("levelledmobs.command.summon"){
             completableFuture.complete(blockCandidates)
         }
         wrapper.runDirectlyInBukkit = true
-        if (options.sender is Player) wrapper.runDirectlyInFolia = true
+        wrapper.runDirectlyInFolia = true
         wrapper.run()
         val blockCandidates = completableFuture.get(100L, TimeUnit.MILLISECONDS)
         if (blockCandidates.isEmpty()) return null
@@ -540,7 +540,7 @@ object SummonSubcommand : CommandBase("levelledmobs.command.summon"){
             futureCandidate.complete(foundLocation)
         }
         wrapper.runDirectlyInBukkit = true
-        if (options.sender is Player) wrapper.runDirectlyInFolia = true
+        wrapper.runDirectlyInFolia = true
         wrapper.run()
 
         val foundLocation = futureCandidate.get(500L, TimeUnit.MILLISECONDS)
