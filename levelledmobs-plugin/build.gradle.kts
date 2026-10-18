@@ -33,7 +33,7 @@ dependencies {
     implementation("com.github.Redempt:Crunch:2.0.3") // https://redempt.dev/com/github/Redempt/Crunch
     implementation("org.bstats:bstats-bukkit:3.1.0") // https://mvnrepository.com/artifact/org.bstats/bstats-bukkit
     compileOnly("me.clip:placeholderapi:2.11.6") // https://repo.extendedclip.com/content/repositories/placeholderapi/me/clip/placeholderapi/
-    compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.1.0-SNAPSHOT") // https://maven.enginehub.org/repo/com/sk89q/worldguard/worldguard-bukkit/
+    compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.13") // https://maven.enginehub.org/repo/com/sk89q/worldguard/worldguard-bukkit/
     compileOnly("de.tr7zw:item-nbt-api-plugin:2.15.0") // https://mvnrepository.com/artifact/de.tr7zw/item-nbt-api-plugin
     compileOnly("io.github.stumper66:LM_Items:1.3.0") // https://mvnrepository.com/artifact/io.github.stumper66/LM_Items
 }
