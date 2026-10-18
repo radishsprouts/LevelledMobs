@@ -181,7 +181,7 @@ class LevelManager : LevelInterface2 {
     private fun mapLegacyEntityTypeName(
         name: String
     ): EntityType{
-        return if (LevelledMobs.instance.ver.minorVersion >= 21){
+        return if (LevelledMobs.instance.ver.minecraftVersion.isGreaterThanOrEqual("1.21")){
             when (name){
                 "ENDER_CRYSTAL" -> EntityType.END_CRYSTAL
                 "ENDER_SIGNAL" -> EntityType.EYE_OF_ENDER
@@ -1078,8 +1078,9 @@ class LevelManager : LevelInterface2 {
 
         if (main.ver.isRunningFolia) {
             val task = Consumer { _: ScheduledTask? -> runnable.run() }
+            val safePeriod = period.coerceAtLeast(1L)
             nametagTimerTask =
-                SchedulerResult(Bukkit.getAsyncScheduler().runAtFixedRate(main, task, 0, period, TimeUnit.SECONDS))
+                SchedulerResult(Bukkit.getAsyncScheduler().runAtFixedRate(main, task, safePeriod, safePeriod, TimeUnit.SECONDS))
         }
         else
             nametagTimerTask = SchedulerResult(Bukkit.getScheduler().runTaskTimer(main, runnable, 0, 20 * period))
@@ -1107,63 +1108,93 @@ class LevelManager : LevelInterface2 {
     }
 
     private fun enumerateNearbyEntities() {
-        entitiesPerPlayer.clear()
-        asyncRunningCount.set(0)
         var checkDistance = entitySpawnListener.mobCheckDistance.toDouble()
 
-        for (player in Bukkit.getOnlinePlayers()) {
-            if (LevelledMobs.instance.ver.isRunningFolia) {
-                asyncRunningCount.getAndIncrement()
+        if (LevelledMobs.instance.ver.isRunningFolia) {
+            val onlinePlayers = Bukkit.getOnlinePlayers().toList()
+            if (onlinePlayers.isEmpty() || !asyncRunningCount.compareAndSet(0, onlinePlayers.size)) return
+
+            synchronized(entitiesPerPlayerLock) {
+                entitiesPerPlayer.clear()
+            }
+
+            val onComplete = Runnable {
+                if (asyncRunningCount.decrementAndGet() == 0) {
+                    runNametagCheckASync()
+                }
+            }
+
+            for (player in onlinePlayers) {
                 val scheduler = SchedulerWrapper(player) {
-                    checkDistance = MiscUtils.retrieveLoadedChunkRadius(player.location, checkDistance)
+                    val playerDistance = MiscUtils.retrieveLoadedChunkRadius(player.location, checkDistance)
                     val entities = player.getNearbyEntities(
-                        checkDistance, checkDistance, checkDistance
+                        playerDistance, playerDistance, playerDistance
                     )
                     synchronized(entitiesPerPlayerLock) {
-                        entitiesPerPlayer.put(player, entities)
+                        entitiesPerPlayer[player] = entities
                     }
-
-                    asyncRunningCount.getAndDecrement()
-                    if (asyncRunningCount.get() == 0) runNametagCheckASync()
+                    onComplete.run()
                 }
+                scheduler.retiredCallback = onComplete
                 scheduler.run()
-            } else {
+            }
+        } else {
+            entitiesPerPlayer.clear()
+            for (player in Bukkit.getOnlinePlayers()) {
                 val entities = player.getNearbyEntities(
                     checkDistance, checkDistance, checkDistance
                 )
                 entitiesPerPlayer[player] = entities
-                runNametagCheckASync()
             }
+            runNametagCheckASync()
         }
     }
 
     fun startNametagTimer() {
-        val scheduler = SchedulerWrapper {  LevelledMobs.instance.nametagTimerChecker.checkNametags() }
-        scheduler.runTaskTimerAsynchronously(0, 1000)
+        val scheduler = SchedulerWrapper { LevelledMobs.instance.nametagTimerChecker.checkNametags() }
+        nametagAutoUpdateTask = scheduler.runTaskTimerAsynchronously(1000L, 1000L)
     }
 
     private fun runNametagCheckASync() {
-        val entityToPlayer = ConcurrentHashMap<LivingEntityWrapper, MutableList<Player>>()
+        val snapshot: Map<Player, List<Entity>>
+        synchronized(entitiesPerPlayerLock) {
+            snapshot = HashMap(entitiesPerPlayer)
+            entitiesPerPlayer.clear()
+        }
 
         if (LevelledMobs.instance.ver.isRunningFolia) {
-            for (player in entitiesPerPlayer.keys) {
-                for (entity in entitiesPerPlayer[player]!!) {
-                    val task =
-                        Consumer { _: ScheduledTask? ->
-                            checkEntity(
-                                entity,
-                                player,
-                                entityToPlayer
-                            )
-                        }
-                    entity.scheduler.run(LevelledMobs.instance, task, null)
+            val playersPerEntity = mutableMapOf<Entity, MutableList<Player>>()
+            for ((player, entities) in snapshot) {
+                for (entity in entities) {
+                    if (entity !is LivingEntity || entity is Player) continue
+                    playersPerEntity.computeIfAbsent(entity) { mutableListOf() }.add(player)
                 }
             }
-        } else {
-            for (player in entitiesPerPlayer.keys) {
-                for (entity in entitiesPerPlayer[player]!!) {
-                    checkEntity(entity, player, entityToPlayer)
-                }
+
+            for ((entity, players) in playersPerEntity) {
+                entity.scheduler.run(
+                    LevelledMobs.instance,
+                    {
+                        val entityToPlayer = mutableMapOf<LivingEntityWrapper, MutableList<Player>>()
+                        for (player in players) {
+                            checkEntity(entity, player, entityToPlayer)
+                        }
+                        for ((lmEntity, value) in entityToPlayer) {
+                            checkEntityForPlayerLevelling(lmEntity, value)
+                            lmEntity.free()
+                        }
+                    },
+                    null
+                )
+            }
+            return
+        }
+
+        val entityToPlayer = ConcurrentHashMap<LivingEntityWrapper, MutableList<Player>>()
+
+        for ((player, entities) in snapshot) {
+            for (entity in entities) {
+                checkEntity(entity, player, entityToPlayer)
             }
         }
 
@@ -1174,8 +1205,6 @@ class LevelManager : LevelInterface2 {
 
             lmEntity.free()
         }
-
-        entitiesPerPlayer.clear()
     }
 
     private fun checkEntity(

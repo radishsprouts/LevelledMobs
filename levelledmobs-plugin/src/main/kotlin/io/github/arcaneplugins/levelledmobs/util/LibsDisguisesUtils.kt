@@ -68,6 +68,8 @@ object LibsDisguisesUtils {
         }
 
         lmEntity.inUseCount.getAndIncrement()
+        wrapper.runDirectlyInFolia = true
+        wrapper.retiredCallback = Runnable { lmEntity.free() }
         wrapper.run()
     }
 }

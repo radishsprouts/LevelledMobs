@@ -61,24 +61,59 @@ class NametagTimerChecker {
         player: Player,
         coolDown: Map.Entry<Player, WeakHashMap<LivingEntity, Instant>>
     ) {
-        val entitiesToRemove = mutableListOf<LivingEntity>()
         val isRunningFolia = LevelledMobs.instance.ver.isRunningFolia
 
-        for (livingEntity in coolDown.value.keys) {
-            if (isRunningFolia) {
+        if (isRunningFolia) {
+            val entities = coolDown.value.keys.toList()
+            for (livingEntity in entities) {
                 livingEntity.scheduler.run(
-                    LevelledMobs.instance, {
-                        processCoolDownEntity(
-                            livingEntity,
-                            entitiesToRemove,
-                            player,
-                            coolDown
-                        )},
-                    null
+                    LevelledMobs.instance,
+                    {
+                        var shouldRemove = false
+                        synchronized(nametagTimer_Lock) {
+                            if (!livingEntity.isValid) {
+                                shouldRemove = true
+                            } else {
+                                val startInclusive = coolDown.value[livingEntity]
+                                if (startInclusive == null || player.world.name != livingEntity.world.name) {
+                                    shouldRemove = true
+                                } else {
+                                    val timeDuration = Duration.between(startInclusive, Instant.now())
+                                    val cooldownTime = cooldownTimes[livingEntity]
+                                    if (cooldownTime != null && timeDuration.toMillis() >= cooldownTime) {
+                                        val lmEntity = LivingEntityWrapper.getInstance(livingEntity)
+                                        val usesLoS = lmEntity.nametagVisibilityEnum.contains(NametagVisibilityEnum.TARGETED)
+                                        if (usesLoS && livingEntity.hasLineOfSight(player)) {
+                                            coolDown.value[livingEntity] = Instant.now()
+                                        } else {
+                                            shouldRemove = true
+                                        }
+                                        lmEntity.free()
+                                    }
+                                }
+                            }
+                            if (shouldRemove) {
+                                coolDown.value.remove(livingEntity)
+                            }
+                        }
+                        if (shouldRemove && livingEntity.isValid) {
+                            updateNametag(livingEntity, player)
+                        }
+                    },
+                    {
+                        synchronized(nametagTimer_Lock) {
+                            coolDown.value.remove(livingEntity)
+                        }
+                    }
                 )
             }
-            else
-                processCoolDownEntity(livingEntity, entitiesToRemove, player, coolDown)
+            return
+        }
+
+        val entitiesToRemove = mutableListOf<LivingEntity>()
+
+        for (livingEntity in coolDown.value.keys) {
+            processCoolDownEntity(livingEntity, entitiesToRemove, player, coolDown)
         }
 
         for (livingEntity in entitiesToRemove) {

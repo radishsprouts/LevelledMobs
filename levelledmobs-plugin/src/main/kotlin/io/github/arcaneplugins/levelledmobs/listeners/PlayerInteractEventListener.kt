@@ -1,6 +1,7 @@
 package io.github.arcaneplugins.levelledmobs.listeners
 
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadLocalRandom
 import io.github.arcaneplugins.levelledmobs.LevelledMobs
 import io.github.arcaneplugins.levelledmobs.commands.MessagesBase
@@ -39,7 +40,7 @@ import org.bukkit.persistence.PersistentDataType
  * @since 3.1.2
  */
 class PlayerInteractEventListener : MessagesBase(), Listener {
-    private val cooldownMap = mutableMapOf<UUID, Cooldown>()
+    private val cooldownMap = ConcurrentHashMap<UUID, Cooldown>()
 
     @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
     fun onPlayerInteractEvent(event: PlayerInteractEvent) {

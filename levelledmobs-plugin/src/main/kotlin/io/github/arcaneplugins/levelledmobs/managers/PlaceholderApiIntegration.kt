@@ -1,6 +1,7 @@
 package io.github.arcaneplugins.levelledmobs.managers
 
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import me.clip.placeholderapi.expansion.PlaceholderExpansion
 import io.github.arcaneplugins.levelledmobs.LevelledMobs
 import io.github.arcaneplugins.levelledmobs.misc.LastMobKilledInfo
@@ -8,6 +9,7 @@ import io.github.arcaneplugins.levelledmobs.misc.StringReplacer
 import io.github.arcaneplugins.levelledmobs.util.MessageUtils.colorizeAll
 import io.github.arcaneplugins.levelledmobs.util.MiscUtils
 import io.github.arcaneplugins.levelledmobs.wrappers.LivingEntityWrapper
+import org.bukkit.Bukkit
 import org.bukkit.entity.LivingEntity
 import org.bukkit.entity.Player
 import org.bukkit.util.Vector
@@ -20,8 +22,8 @@ import org.bukkit.util.Vector
  */
 @Suppress("DEPRECATION")
 class PlaceholderApiIntegration : PlaceholderExpansion() {
-    private val mobsByPlayerTracking = mutableMapOf<UUID, LastMobKilledInfo>()
-    private val playerDeathInfo = mutableMapOf<UUID, LastMobKilledInfo>()
+    private val mobsByPlayerTracking = ConcurrentHashMap<UUID, LastMobKilledInfo>()
+    private val playerDeathInfo = ConcurrentHashMap<UUID, LastMobKilledInfo>()
 
     fun putPlayerOrMobDeath(
         player: Player,
@@ -165,6 +167,9 @@ class PlaceholderApiIntegration : PlaceholderExpansion() {
     }
 
     private fun getMobBeingLookedAt(player: Player): LivingEntity? {
+        if (LevelledMobs.instance.ver.isRunningFolia && !Bukkit.isOwnedByCurrentRegion(player)) {
+            return null
+        }
         var livingEntity: LivingEntity? = null
         val eye = player.eyeLocation
         val maxBlocks = LevelledMobs.instance.helperSettings.getInt(

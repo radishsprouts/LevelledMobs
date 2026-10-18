@@ -17,6 +17,7 @@ import io.github.arcaneplugins.levelledmobs.util.MessageUtils.colorizeAll
 import io.github.arcaneplugins.levelledmobs.util.Utils
 import io.github.arcaneplugins.levelledmobs.wrappers.LivingEntityWrapper
 import io.github.arcaneplugins.levelledmobs.wrappers.SchedulerWrapper
+import java.util.concurrent.ConcurrentHashMap
 import org.bukkit.Bukkit
 import org.bukkit.entity.EntityType
 import org.bukkit.entity.Player
@@ -28,13 +29,13 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.persistence.PersistentDataType
 
 /**
- * Listens for when an entity dies so it's drops can be multiplied, manipulated, etc
+ * Listens for when an entity dies so it's drops can be manipulated, etc
  *
  * @author lokka30
  * @since 2.4.0
  */
 class EntityDeathListener : Listener {
-    val damageMappings = mutableMapOf<UUID, Player>()
+    val damageMappings = ConcurrentHashMap<UUID, Player>()
     private var lastPriority: EventPriority? = null
     private val settingName = "entity-death-event"
 
@@ -157,6 +158,8 @@ class EntityDeathListener : Listener {
         }
         lmEntity.inUseCount.incrementAndGet()
         scheduler.runDirectlyInBukkit = true
+        scheduler.runDirectlyInFolia = true
+        scheduler.retiredCallback = Runnable { lmEntity.free() }
         scheduler.run()
     }
 
@@ -218,7 +221,8 @@ class EntityDeathListener : Listener {
             return null
         }
 
-        val startingChunk = lmEntity.location.chunk
+        val startingChunkX = lmEntity.location.blockX shr 4
+        val startingChunkZ = lmEntity.location.blockZ shr 4
         val result = AdjacentChunksResult()
 
         for (x in -adjacentChunksToCheck until adjacentChunksToCheck) {
@@ -227,13 +231,13 @@ class EntityDeathListener : Listener {
                     continue
                 }
 
-                val chunk = lmEntity.world
-                    .getChunkAt(startingChunk.x + x, startingChunk.z + z)
-                if (!chunk.isLoaded) {
+                val chunkX = startingChunkX + x
+                val chunkZ = startingChunkZ + z
+                if (!lmEntity.world.isChunkLoaded(chunkX, chunkZ)) {
                     continue
                 }
 
-                result.chunkKeys.add(Utils.getChunkKey(chunk))
+                result.chunkKeys.add(Utils.getChunkKey(chunkX, chunkZ))
             }
         }
 

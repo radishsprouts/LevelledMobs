@@ -7,6 +7,7 @@ import io.github.arcaneplugins.levelledmobs.misc.Cooldown
 import io.github.arcaneplugins.levelledmobs.util.MessageUtils.colorizeAll
 import io.github.arcaneplugins.levelledmobs.util.Utils
 import io.github.arcaneplugins.levelledmobs.wrappers.LivingEntityWrapper
+import java.util.concurrent.ConcurrentHashMap
 import org.bukkit.attribute.AttributeModifier
 import org.bukkit.entity.Creeper
 import org.bukkit.entity.LivingEntity
@@ -24,7 +25,7 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent
  * @since 2.4.0
  */
 class EntityDamageDebugListener : Listener {
-    private val cooldownMap = mutableMapOf<UUID, Cooldown>()
+    private val cooldownMap = ConcurrentHashMap<UUID, Cooldown>()
 
     //This class is used to debug levellable mobs. It simply displays their current attributes, current health and current level.
     @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)

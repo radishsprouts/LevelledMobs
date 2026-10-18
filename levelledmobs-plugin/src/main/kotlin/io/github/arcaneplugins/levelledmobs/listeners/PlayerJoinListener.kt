@@ -7,6 +7,7 @@ import io.github.arcaneplugins.levelledmobs.misc.NamespacedKeys
 import io.github.arcaneplugins.levelledmobs.misc.PlayerQueueItem
 import io.github.arcaneplugins.levelledmobs.util.Log
 import io.github.arcaneplugins.levelledmobs.util.MessageUtils
+import io.github.arcaneplugins.levelledmobs.util.MiscUtils
 import io.github.arcaneplugins.levelledmobs.wrappers.LivingEntityWrapper
 import io.github.arcaneplugins.levelledmobs.wrappers.SchedulerWrapper
 import org.bukkit.Bukkit
@@ -35,6 +36,10 @@ class PlayerJoinListener : Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     fun onJoin(event: PlayerJoinEvent) {
+        val currentPlayers = Bukkit.getOnlinePlayers().size
+        if (currentPlayers > main.maxPlayersRecorded)
+            main.maxPlayersRecorded = currentPlayers
+
         if (event.player.isOp && main.debugManager.playerThatEnabledDebug == null)
             main.debugManager.playerThatEnabledDebug = event.player
 
@@ -44,8 +49,7 @@ class PlayerJoinListener : Listener {
         main.nametagTimerChecker.addPlayerToQueue(PlayerQueueItem(event.player, true))
         parseUpdateChecker(event.player)
 
-        if (!LevelledMobs.instance.ver.isRunningFolia)
-            updateNametagsInWorldAsync(event.player, event.player.world.entities)
+        updateNametagsForPlayer(event.player)
 
         if (event.player.isOp)
             processOpOnlyStuff(event)
@@ -153,7 +157,7 @@ class PlayerJoinListener : Listener {
 
     @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
     fun onChangeWorld(event: PlayerChangedWorldEvent) {
-        updateNametagsInWorldAsync(event.player, event.player.world.entities)
+        updateNametagsForPlayer(event.player)
     }
 
     @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
@@ -162,13 +166,33 @@ class PlayerJoinListener : Listener {
         // only update tags if teleported to a different world
         @Suppress("SENSELESS_COMPARISON")
         if (event.to != null && event.to.world != null && event.from.world != null && event.from.world != event.to.world)
-            updateNametagsInWorldAsync(event.player, event.to.world.entities)
+            updateNametagsForPlayer(event.player)
     }
 
-    private fun updateNametagsInWorldAsync(player: Player, entities: List<Entity>) {
-        val scheduler = SchedulerWrapper { updateNametagsInWorld(player, entities) }
-        scheduler.runDirectlyInFolia = true
-        scheduler.run()
+    private fun updateNametagsForPlayer(player: Player) {
+        if (LevelledMobs.instance.ver.isRunningFolia) {
+            val scheduler = SchedulerWrapper(player) {
+                if (!player.isOnline) return@SchedulerWrapper
+                val radius = MiscUtils.retrieveLoadedChunkRadius(player.location, 48.0)
+                if (radius <= 0.0) return@SchedulerWrapper
+                for (entity in player.getNearbyEntities(radius, radius, radius)) {
+                    if (entity !is LivingEntity || !entity.isValid) continue
+                    if (!main.levelManager.isLevelled(entity)) continue
+
+                    entity.scheduler.run(main, {
+                        if (!entity.isValid) return@run
+                        val lmEntity = LivingEntityWrapper.getInstance(entity)
+                        val nametag = main.levelManager.getNametag(lmEntity, isDeathNametag = false, preserveMobName = false)
+                        main.levelManager.updateNametag(lmEntity, nametag, mutableListOf(player))
+                        lmEntity.free()
+                    }, null)
+                }
+            }
+            scheduler.runDelayed(2L)
+        } else {
+            val scheduler = SchedulerWrapper { updateNametagsInWorld(player, player.world.entities) }
+            scheduler.run()
+        }
     }
 
     private fun updateNametagsInWorld(player: Player, entities: List<Entity>) {

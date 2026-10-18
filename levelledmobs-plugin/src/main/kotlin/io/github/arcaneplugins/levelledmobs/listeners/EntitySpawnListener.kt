@@ -84,18 +84,16 @@ class EntitySpawnListener : Listener{
         if (event.entity !is LivingEntity) return
         if (LevelledMobs.instance.levelManager.forcedBlockedEntityTypes.contains(event.entityType)) return
 
-        val scheduler = SchedulerWrapper(event.entity){
+        val scheduler = SchedulerWrapper(event.entity) {
             val lmEntity = LivingEntityWrapper.getInstance(event.entity as LivingEntity)
 
             if (mobProcessDelay > 0)
                 delayedProcessMob(lmEntity, event, mobProcessDelay)
             else
                 preProcessmob(lmEntity, event, 0)
-
-            lmEntity.free()
         }
-
         scheduler.runDirectlyInBukkit = true
+        scheduler.runDirectlyInFolia = true
         scheduler.run()
     }
 
@@ -156,12 +154,13 @@ class EntitySpawnListener : Listener{
         event: EntitySpawnEvent,
         delay: Int
     ) {
-        val scheduler = SchedulerWrapper {
+        val scheduler = SchedulerWrapper(lmEntity.livingEntity) {
             preProcessmob(lmEntity, event, delay)
             lmEntity.free()
         }
 
         lmEntity.inUseCount.getAndIncrement()
+        scheduler.retiredCallback = Runnable { lmEntity.free() }
         scheduler.runDelayed(delay.toLong())
     }
 
@@ -170,13 +169,13 @@ class EntitySpawnListener : Listener{
         event: Event,
         delay: Int
     ) {
-        val scheduler = SchedulerWrapper {
+        val scheduler = SchedulerWrapper(lmEntity.livingEntity) {
             LevelledMobs.instance.mobsQueueManager.addToQueue(QueueItem(lmEntity, event))
             lmEntity.free()
         }
 
         lmEntity.inUseCount.getAndIncrement()
-        scheduler.entity = lmEntity.livingEntity
+        scheduler.retiredCallback = Runnable { lmEntity.free() }
         scheduler.runDelayed(delay.toLong())
     }
 
@@ -343,6 +342,8 @@ class EntitySpawnListener : Listener{
                         lmEntity.free()
                     }
                     scheduler.runDirectlyInBukkit = true
+                    scheduler.runDirectlyInFolia = true
+                    scheduler.retiredCallback = Runnable { lmEntity.free() }
                     lmEntity.inUseCount.getAndIncrement()
                     scheduler.run()
                 }
@@ -451,7 +452,10 @@ class EntitySpawnListener : Listener{
                 lmEntity.free()
             }
 
-            if (Bukkit.isPrimaryThread()) wrapper.runDirectlyInBukkit = true
+            if (!LevelledMobs.instance.ver.isRunningFolia && Bukkit.isPrimaryThread())
+                wrapper.runDirectlyInBukkit = true
+            wrapper.runDirectlyInFolia = true
+            wrapper.retiredCallback = Runnable { lmEntity.free() }
 
             lmEntity.inUseCount.getAndIncrement()
             wrapper.run()
@@ -463,7 +467,7 @@ class EntitySpawnListener : Listener{
             onlinePlayerCount: Int
         ){
             val main = LevelledMobs.instance
-            val playerList: MutableList<Player> = if (onlinePlayerCount <= 10) getPlayersOnServerNearMob(
+            val playerList: MutableList<Player> = if (!main.ver.isRunningFolia && onlinePlayerCount <= 10) getPlayersOnServerNearMob(
                 lmEntity.livingEntity,
                 checkDistance
             ) else getPlayersNearMob(lmEntity.livingEntity, checkDistance)

@@ -175,6 +175,8 @@ class EntityDamageListener : Listener {
         }
         lmEntity.inUseCount.incrementAndGet()
         scheduler.runDirectlyInBukkit = true
+        scheduler.runDirectlyInFolia = true
+        scheduler.retiredCallback = Runnable { lmEntity.free() }
         scheduler.run()
 
         lmEntity.free()
@@ -189,6 +191,7 @@ class EntityDamageListener : Listener {
             processOtherRangedDamage(event)
         }
         scheduler.runDirectlyInBukkit = true
+        scheduler.runDirectlyInFolia = true
         scheduler.run()
     }
 
@@ -235,7 +238,10 @@ class EntityDamageListener : Listener {
 
             shooter.free()
         }
+        shooter.inUseCount.incrementAndGet()
         scheduler.runDirectlyInBukkit = true
+        scheduler.runDirectlyInFolia = true
+        scheduler.retiredCallback = Runnable { shooter.free() }
         scheduler.run()
     }
 
