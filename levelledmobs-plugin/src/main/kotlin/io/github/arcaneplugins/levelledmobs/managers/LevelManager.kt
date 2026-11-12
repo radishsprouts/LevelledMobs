@@ -66,7 +66,14 @@ import org.bukkit.entity.Player
 import org.bukkit.entity.Vehicle
 import org.bukkit.entity.Zombie
 import org.bukkit.event.entity.CreatureSpawnEvent
+import org.bukkit.Location
 import org.bukkit.inventory.ItemStack
+import io.github.arcaneplugins.levelledmobs.rules.RuleInfo
+import io.github.arcaneplugins.levelledmobs.rules.FineTuningAttributes
+import io.github.arcaneplugins.levelledmobs.rules.WithinCoordinates
+import io.github.arcaneplugins.levelledmobs.rules.strategies.LevellingStrategy
+import io.github.arcaneplugins.levelledmobs.rules.strategies.SpawnDistanceStrategy
+import io.github.arcaneplugins.levelledmobs.rules.strategies.YDistanceStrategy
 import org.bukkit.persistence.PersistentDataType
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeoutException
@@ -2168,6 +2175,270 @@ class LevelManager : LevelInterface2 {
         }
         finally {
             lmEntity.free()
+        }
+    }
+
+    // --- Levelled Loot (Chests, Vaults) Support ---
+
+    fun getApplicableRulesForLocation(location: Location): List<RuleInfo> {
+        val world = location.world ?: return emptyList()
+        val worldName = world.name
+        val applicableRules = mutableListOf<RuleInfo>()
+
+        for (ruleInfo in LevelledMobs.instance.rulesManager.rulesInEffect) {
+            if (!ruleInfo.ruleIsEnabled || ruleInfo.isTempDisabled) continue
+
+            // モブ専用条件があるルールは除外（エンティティ限定、スポーン理由など）
+            val entities = ruleInfo.conditionsEntities
+            if (entities != null && !entities.includeAll && !entities.isEmpty()) continue
+            if (ruleInfo.conditionsSpawnReasons != null && !ruleInfo.conditionsSpawnReasons!!.isEmpty()) continue
+            if (ruleInfo.conditionsSpawnerNames != null && !ruleInfo.conditionsSpawnerNames!!.isEmpty()) continue
+            if (ruleInfo.conditionsSpawnegEggNames != null && !ruleInfo.conditionsSpawnegEggNames!!.isEmpty()) continue
+            if (ruleInfo.conditionsMobTamedStatus != MobTamedStatus.NOT_SPECIFIED && ruleInfo.conditionsMobTamedStatus != MobTamedStatus.EITHER) continue
+            if (ruleInfo.conditionsExternalPlugins != null && !ruleInfo.conditionsExternalPlugins!!.isEmpty()) continue
+
+            // ワールド判定
+            if (ruleInfo.conditionsWorlds != null && !ruleInfo.conditionsWorlds!!.isIncludedInList(worldName, null)) {
+                continue
+            }
+
+            // 座標範囲判定
+            val mdr = ruleInfo.conditionsWithinCoords
+            if (mdr != null) {
+                if (mdr.getHasX && !mdr.isLocationWithinRange(location.blockX, WithinCoordinates.Axis.X)) continue
+                if (mdr.getHasY && !mdr.isLocationWithinRange(location.blockY, WithinCoordinates.Axis.Y)) continue
+                if (mdr.getHasZ && !mdr.isLocationWithinRange(location.blockZ, WithinCoordinates.Axis.Z)) continue
+            }
+
+            // Y座標判定
+            if (ruleInfo.conditionsApplyAboveY != null && location.blockY <= ruleInfo.conditionsApplyAboveY!!) continue
+            if (ruleInfo.conditionsApplyBelowY != null && location.blockY >= ruleInfo.conditionsApplyBelowY!!) continue
+
+            // スポーン距離判定
+            val spawnLoc = world.spawnLocation
+            val dist = Location(world, spawnLoc.x, location.y, spawnLoc.z).distance(location).toFloat()
+            if (ruleInfo.conditionsMinDistanceFromSpawn != null && dist < ruleInfo.conditionsMinDistanceFromSpawn!!) continue
+            if (ruleInfo.conditionsMaxDistanceFromSpawn != null && dist > ruleInfo.conditionsMaxDistanceFromSpawn!!) continue
+
+            applicableRules.add(ruleInfo)
+
+            if (ruleInfo.stopProcessingRules == true) {
+                break
+            }
+        }
+
+        if (applicableRules.isEmpty()) {
+            val def = LevelledMobs.instance.rulesParsingManager.defaultRule
+                ?: LevelledMobs.instance.rulesManager.rulesInEffect.firstOrNull()
+            if (def != null) applicableRules.add(def)
+        }
+
+        return applicableRules
+    }
+
+    fun getApplicableRuleForLocation(location: Location): RuleInfo {
+        return getApplicableRulesForLocation(location).lastOrNull()
+            ?: LevelledMobs.instance.rulesParsingManager.defaultRule
+            ?: LevelledMobs.instance.rulesManager.rulesInEffect.firstOrNull()
+            ?: RuleInfo("Default")
+    }
+
+    fun calculateLevelForLocation(location: Location, ruleInfo: RuleInfo): Int {
+        return calculateLevelForLocation(location, listOf(ruleInfo))
+    }
+
+    fun calculateLevelForLocation(location: Location, applicableRules: List<RuleInfo>): Int {
+        val world = location.world ?: return 1
+
+        var minLevel = 1
+        var maxLevel = 100
+        val strategies = mutableMapOf<StrategyType, LevellingStrategy>()
+        var constructFormula: String? = null
+
+        for (ruleInfo in applicableRules) {
+            if (ruleInfo.restrictionsMinLevel != null) minLevel = ruleInfo.restrictionsMinLevel!!
+            if (ruleInfo.restrictionsMaxLevel != null) maxLevel = ruleInfo.restrictionsMaxLevel!!
+            if (ruleInfo.constructLevel != null) constructFormula = ruleInfo.constructLevel
+
+            for (entry in ruleInfo.levellingStrategy) {
+                val currentStrategy = strategies[entry.key]
+                if (currentStrategy == null || !entry.value.shouldMerge) {
+                    strategies[entry.key] = entry.value
+                } else {
+                    currentStrategy.cloneItem().mergeRule(entry.value)
+                }
+            }
+        }
+
+        var rawLevel = 0f
+        var hadStrategy = false
+
+        for ((_, strategy) in strategies) {
+            when (strategy) {
+                is SpawnDistanceStrategy -> {
+                    val originX = strategy.originCoordX?.toDouble() ?: world.spawnLocation.x
+                    val originZ = strategy.originCoordZ?.toDouble() ?: world.spawnLocation.z
+                    val originLoc = Location(world, originX, location.y, originZ)
+                    val dist = originLoc.distance(location).toFloat()
+                    val buffer = strategy.bufferDistance ?: 0f
+                    val ring = if ((strategy.ringedTiers ?: 1f) == 0f) 1f else (strategy.ringedTiers ?: 1f)
+                    val levelDist = (dist - buffer).coerceAtLeast(0f)
+                    rawLevel += (levelDist / ring)
+                    hadStrategy = true
+                }
+                is YDistanceStrategy -> {
+                    val yStart = strategy.startingYLevel?.toFloat() ?: 0f
+                    val yEnd = strategy.endingYLevel?.toFloat() ?: 0f
+                    val yPeriod = strategy.yPeriod?.toFloat() ?: 0f
+                    val isDescending = yStart > yEnd
+                    val highest = if (isDescending) yStart else yEnd
+                    val lowest = if (isDescending) yEnd else yStart
+                    val diff = if (isDescending) yStart - yEnd else yEnd - yStart
+                    var mobY = location.blockY.toFloat()
+                    if (isDescending && yPeriod == 0f && strategy.increasePerLevel == null) mobY = mobY.coerceAtMost(highest)
+                    if (yPeriod == 0f && strategy.increasePerLevel == null) mobY = mobY.coerceAtLeast(lowest)
+                    val distanceBelow = if (isDescending) highest - mobY else mobY - lowest
+                    val useLevel = if (strategy.increasePerLevel != null) {
+                        val firstStep = if (isDescending) yStart - mobY else mobY - yStart
+                        floor(firstStep / strategy.increasePerLevel!!)
+                    } else if (yPeriod != 0f) {
+                        val lvlPerPeriod = (maxLevel - minLevel) / yPeriod
+                        val periodBelow = distanceBelow / yPeriod
+                        minLevel + (lvlPerPeriod * periodBelow)
+                    } else {
+                        val percent = if (diff > 0f) (distanceBelow / diff) else 0f
+                        minLevel + ((maxLevel - minLevel) * percent)
+                    }
+                    rawLevel += useLevel
+                    hadStrategy = true
+                }
+                else -> {}
+            }
+        }
+
+        if (!hadStrategy) {
+            val dist = world.spawnLocation.distance(location).toFloat()
+            rawLevel = dist / 250f
+        }
+
+        var calculated = rawLevel
+        if (constructFormula != null) {
+            val formulaStr = constructFormula
+                .replace("%distance-from-origin%", rawLevel.toString())
+                .replace("%y-coordinate%", rawLevel.toString())
+                .replace("%weighted-random%", "0")
+                .replace("%player-variable-mod%", "0")
+                .replace("%custom_special%", "0")
+                .replace("%custom_nether%", "0")
+                .replace("%custom_end%", "0")
+                .replace(Regex("%rand_[-0-9]+_[-0-9]+%"), "0")
+            val eval = MobDataManager.evaluateExpression(formulaStr)
+            if (!eval.hadError) {
+                calculated = eval.result.toFloat()
+            }
+        }
+
+        return calculated.roundToInt().coerceIn(minLevel, maxLevel)
+    }
+
+    fun calculateLootMultiplier(location: Location, ruleInfo: RuleInfo, isVault: Boolean): Float {
+        return calculateLootMultiplier(location, listOf(ruleInfo), isVault)
+    }
+
+    fun calculateLootMultiplier(location: Location, applicableRules: List<RuleInfo>, isVault: Boolean): Float {
+        var minLevel = 1
+        var maxLevel = 100
+        for (ruleInfo in applicableRules) {
+            if (ruleInfo.restrictionsMinLevel != null) minLevel = ruleInfo.restrictionsMinLevel!!
+            if (ruleInfo.restrictionsMaxLevel != null) maxLevel = ruleInfo.restrictionsMaxLevel!!
+        }
+
+        val level = calculateLevelForLocation(location, applicableRules)
+        val levelRatio = if (maxLevel > minLevel) (level - minLevel).toFloat() / (maxLevel - minLevel) else 0f
+
+        var fineTuning: FineTuningAttributes? = null
+        for (ruleInfo in applicableRules) {
+            if (ruleInfo.mobMultipliers == null) continue
+            val multipliers = ruleInfo.mobMultipliers!!
+            if (fineTuning == null)
+                fineTuning = multipliers.cloneItem() as FineTuningAttributes
+            else
+                fineTuning.merge(multipliers)
+        }
+
+        var multiplierValue = 0f
+        val mult = fineTuning?.multipliers?.get(Addition.CUSTOM_ITEM_DROP)
+        val defaultValue = 2.0f
+
+        if (mult != null) {
+            if (mult.hasFormula && mult.formula != null) {
+                val formula = mult.formula!!
+                    .replace("%level-ratio%", levelRatio.toString())
+                    .replace("%item-drop%", "1")
+                    .replace("%level%", level.toString())
+                    .replace("%mob-lvl%", level.toString())
+                val eval = MobDataManager.evaluateExpression(formula)
+                if (!eval.hadError) {
+                    multiplierValue = eval.result.toFloat()
+                }
+            } else {
+                multiplierValue = mult.useValue
+                if (fineTuning.getUseStacked() || mult.useStacked) {
+                    multiplierValue = level.toFloat() * multiplierValue
+                } else {
+                    multiplierValue = defaultValue * multiplierValue * (level.toFloat() / maxLevel.toFloat())
+                }
+            }
+        } else {
+            multiplierValue = levelRatio * defaultValue
+        }
+
+        if (isVault) {
+            val vaultMultiplier = (LevelledMobs.instance.helperSettings.getDouble2("levelled-loot-vault-multiplier", 1.0) ?: 1.0).toFloat()
+            multiplierValue *= vaultMultiplier
+        }
+
+        return multiplierValue.coerceAtLeast(0f)
+    }
+
+    fun processLevelledLoot(
+        loot: MutableList<ItemStack>,
+        addition: Float,
+        maxContainerSlots: Int,
+        excludedItems: Set<String>
+    ) {
+        if (addition <= 0.001f || loot.isEmpty()) return
+
+        val additionalItems = mutableListOf<ItemStack>()
+
+        for (item in loot) {
+            if (item.type.isAir || item.amount <= 0) continue
+
+            val itemKey = item.type.key.asString().lowercase()
+            val typeName = item.type.name.lowercase()
+            if (excludedItems.contains(itemKey) || excludedItems.contains(typeName)) {
+                continue
+            }
+
+            if (item.maxStackSize > 1) {
+                val boost = (item.amount.toFloat() * addition).roundToInt()
+                val newAmount = (item.amount + boost).coerceAtMost(item.maxStackSize)
+                item.amount = newAmount
+            } else {
+                val extraCopies = addition.toInt()
+                for (i in 0 until extraCopies) {
+                    additionalItems.add(item.clone())
+                }
+            }
+        }
+
+        if (additionalItems.isNotEmpty()) {
+            var currentUsedSlots = loot.count { !it.type.isAir }
+            for (extraItem in additionalItems) {
+                if (currentUsedSlots >= maxContainerSlots) break
+                loot.add(extraItem)
+                currentUsedSlots++
+            }
         }
     }
 }

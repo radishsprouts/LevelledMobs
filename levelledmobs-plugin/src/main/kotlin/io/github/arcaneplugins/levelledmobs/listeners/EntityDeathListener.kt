@@ -110,6 +110,11 @@ class EntityDeathListener : Listener {
                 }
                 if (opts.getDisableItemBoost()) doNotMultiplyDrops = true
                 if (opts.getDisableXpDrops()) doNotBoostXp = true
+
+                val flagValue = if (disableXpDrops) 2 else if (doNotBoostXp) 1 else 0
+                if (flagValue > 0) {
+                    lmEntity.pdc.set(NamespacedKeys.chunkKillMaxReached, PersistentDataType.INTEGER, flagValue)
+                }
             }
         }
 

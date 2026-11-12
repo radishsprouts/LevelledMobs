@@ -273,7 +273,8 @@ class MobDataManager {
             attrib.value.toFloat()
         try {
             if (lmEntity.livingEntity.health <= 0.0) return
-            lmEntity.livingEntity.health = newHealth.toDouble().coerceAtLeast(1.0)
+            val minHealth = 0.0001.coerceAtMost(attrib.value)
+            lmEntity.livingEntity.health = newHealth.toDouble().coerceIn(minHealth, attrib.value)
         } catch (e: IllegalArgumentException) {
             DebugManager.log(DebugType.APPLY_MULTIPLIERS, lmEntity){
                 "Error setting maxhealth = $newHealth, ${e.message}"

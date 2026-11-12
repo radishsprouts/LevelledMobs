@@ -11,6 +11,7 @@ import io.github.arcaneplugins.levelledmobs.listeners.EntityDeathListener
 import io.github.arcaneplugins.levelledmobs.listeners.EntityTransformListener
 import io.github.arcaneplugins.levelledmobs.listeners.PlayerDeathListener
 import io.github.arcaneplugins.levelledmobs.listeners.PlayerInteractEventListener
+import io.github.arcaneplugins.levelledmobs.listeners.LootListener
 import io.github.arcaneplugins.levelledmobs.managers.EssentialsIntegration
 import io.github.arcaneplugins.levelledmobs.managers.LevelManager
 import io.github.arcaneplugins.levelledmobs.managers.MobDataManager
@@ -66,6 +67,7 @@ class LevelledMobs : JavaPlugin() {
     val entityDamageListener = EntityDamageListener()
     val entityTransformListener = EntityTransformListener()
     val entityDeathListener = EntityDeathListener()
+    val lootListener = LootListener()
     val mainCompanion = MainCompanion()
     val rulesParsingManager = RulesParser()
     val rulesManager = RulesManager()

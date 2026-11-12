@@ -221,6 +221,7 @@ class MainCompanion{
         pluginManager.registerEvents(main.playerInteractEventListener, main)
         pluginManager.registerEvents(main.chunkLoadListener, main)
         main.chunkLoadListener.load()
+        pluginManager.registerEvents(main.lootListener, main)
 
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
             main.placeholderApiIntegration = PlaceholderApiIntegration()

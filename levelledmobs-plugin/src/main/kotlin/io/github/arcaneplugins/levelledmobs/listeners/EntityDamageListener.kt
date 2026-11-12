@@ -39,7 +39,9 @@ import org.bukkit.persistence.PersistentDataType
 class EntityDamageListener : Listener {
     var updateMobsOnNonPlayerdamage = true
     private var lastPriority: EventPriority? = null
+    private var lastRangedPriority: EventPriority? = null
     private val settingName = "entity-damage-event"
+    private val rangedSettingName = "ranged-damage-event"
 
     companion object {
         @JvmStatic
@@ -53,11 +55,13 @@ class EntityDamageListener : Listener {
 
     fun load() {
         val priority = LevelledMobs.instance.mainCompanion.getEventPriority(settingName, EventPriority.MONITOR)
-        if (lastPriority != null) {
-            if (priority == lastPriority) return
+        val rangedPriority = LevelledMobs.instance.mainCompanion.getEventPriority(rangedSettingName, EventPriority.LOWEST)
+
+        if (lastPriority != null || lastRangedPriority != null) {
+            if (priority == lastPriority && rangedPriority == lastRangedPriority) return
 
             HandlerList.unregisterAll(this)
-            Log.inf("Changing event priority for $settingName from $lastPriority to $priority")
+            Log.inf("Changing event priority for $settingName to $priority and $rangedSettingName to $rangedPriority")
         }
 
         Bukkit.getPluginManager().registerEvent(
@@ -72,13 +76,14 @@ class EntityDamageListener : Listener {
         Bukkit.getPluginManager().registerEvent(
             EntityDamageByEntityEvent::class.java,
             this,
-            priority,
+            rangedPriority,
             { _, event -> if (event is EntityDamageByEntityEvent) onEntityDamageByEntityEvent(event) },
             LevelledMobs.instance,
             false
         )
 
         lastPriority = priority
+        lastRangedPriority = rangedPriority
     }
 
     // When the mob is damaged, update their nametag.
@@ -285,12 +290,14 @@ class EntityDamageListener : Listener {
 
         val oldDamage = event.damage
         val lmEntity = LivingEntityWrapper.getInstance(livingEntity)
-        event.damage = lmEntity.main.mobDataManager.getAdditionsForLevel(
+        val addition = lmEntity.main.mobDataManager.getAdditionsForLevel(
             lmEntity, Addition.CUSTOM_RANGED_ATTACK_DAMAGE,
             event.damage.toFloat()
-        ).multiplierAmount.toDouble() // use ranged attack damage value
+        ).multiplierAmount
+        val newDamage = (oldDamage + addition).toDouble()
+        event.damage = newDamage
         DebugManager.log(DebugType.RANGED_DAMAGE_MODIFICATION, livingEntity)
-        { "old damage: &b: $oldDamage&r, new damage: &b${event.damage}&r" }
+        { "old damage: &b$oldDamage&r, new damage: &b$newDamage&r" }
         lmEntity.free()
     }
 }

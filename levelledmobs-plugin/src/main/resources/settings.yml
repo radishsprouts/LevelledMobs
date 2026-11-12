@@ -187,11 +187,21 @@ exclude-players-in-creative: false
 # ||  for attribute formulas that need player context.
 ignore-mobs-with-no-player-context: false
 
+# ||  Levelled Loot (Chests, Vaults, etc.)
+# ||  When enabled, loot generated in world containers (chests, barrels, etc.)
+# ||  and dispensed from Trial Chamber Vaults will be multiplied
+# ||  using the same distance-based rules as mobs.
+enable-levelled-loot: true
+levelled-loot-vault-multiplier: 1.0
+levelled-loot-excluded-items:
+  - 'minecraft:ominous_bottle'
+
 # ||  This setting controls the even priority used in
 # ||  various events.
 event-priorities:
   # valid values: lowest, low, normal, high, highest, monitor
   entity-damage-event: 'monitor'
+  ranged-damage-event: 'lowest'
   entity-death-event: 'normal'
   entity-spawn-event: 'monitor'
   entity-transform-event: 'monitor'
